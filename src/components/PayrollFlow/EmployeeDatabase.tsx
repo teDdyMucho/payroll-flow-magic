@@ -413,7 +413,7 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
                   });
                   
                   // Add additional success message for the Firestore update
-                  results.success.push(`Updated Firestore data for employee ${employee.name}`);
+                  results.success.push(`Updated Firestore data for employee ${employee.name} (${Date.now()})`);
                 }
               } catch (firestoreError) {
                 console.error(`Error updating Firestore for employee ${employee.id}:`, firestoreError);
@@ -503,42 +503,53 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
           const resultVariable = node.data?.resultVariable;
           
           if (formula && resultVariable) {
-            // Simulate formula execution
-            // In a real implementation, you would evaluate the formula
+            // Use the same formula evaluation logic as in the ComputationNode component
             let result;
             
-            // Simple formula simulation based on common patterns
-            if (formula.includes('+')) {
-              const parts = formula.split('+').map(p => p.trim());
-              const values = parts.map(p => {
-                if (variables[p] !== undefined) return variables[p];
-                return isNaN(Number(p)) ? 0 : Number(p);
-              });
-              result = values.reduce((sum, val) => sum + val, 0);
-            } else if (formula.includes('*')) {
-              const parts = formula.split('*').map(p => p.trim());
-              const values = parts.map(p => {
-                if (variables[p] !== undefined) return variables[p];
-                return isNaN(Number(p)) ? 1 : Number(p);
-              });
-              result = values.reduce((product, val) => product * val, 1);
-            } else if (formula.includes('-')) {
-              const parts = formula.split('-').map(p => p.trim());
-              const values = parts.map(p => {
-                if (variables[p] !== undefined) return variables[p];
-                return isNaN(Number(p)) ? 0 : Number(p);
-              });
-              result = values.reduce((diff, val, idx) => idx === 0 ? val : diff - val, 0);
-            } else if (formula.includes('/')) {
-              const parts = formula.split('/').map(p => p.trim());
-              const values = parts.map(p => {
-                if (variables[p] !== undefined) return variables[p];
-                return isNaN(Number(p)) ? 1 : Number(p);
-              });
-              result = values.reduce((quotient, val, idx) => idx === 0 ? val : quotient / val, 0);
-            } else {
-              // If no operators, try to use the variable directly
-              result = variables[formula] !== undefined ? variables[formula] : 0;
+            try {
+              // Create a safe evaluation context with only the variables we need
+              const evalContext = { ...variables };
+              
+              // Create a function that evaluates the expression in the context of our variables
+              const evalFunction = new Function(...Object.keys(evalContext), `return ${formula};`);
+              
+              // Call the function with our variable values
+              result = evalFunction(...Object.values(evalContext));
+            } catch (evalError) {
+              console.error('Error evaluating formula:', evalError);
+              // Fallback to simple formula simulation if evaluation fails
+              if (formula.includes('+')) {
+                const parts = formula.split('+').map(p => p.trim());
+                const values = parts.map(p => {
+                  if (variables[p] !== undefined) return Number(variables[p]);
+                  return isNaN(Number(p)) ? 0 : Number(p);
+                });
+                result = values.reduce((sum, val) => sum + val, 0);
+              } else if (formula.includes('*')) {
+                const parts = formula.split('*').map(p => p.trim());
+                const values = parts.map(p => {
+                  if (variables[p] !== undefined) return Number(variables[p]);
+                  return isNaN(Number(p)) ? 1 : Number(p);
+                });
+                result = values.reduce((product, val) => product * val, 1);
+              } else if (formula.includes('-')) {
+                const parts = formula.split('-').map(p => p.trim());
+                const values = parts.map(p => {
+                  if (variables[p] !== undefined) return Number(variables[p]);
+                  return isNaN(Number(p)) ? 0 : Number(p);
+                });
+                result = values.reduce((diff, val, idx) => idx === 0 ? val : diff - val, 0);
+              } else if (formula.includes('/')) {
+                const parts = formula.split('/').map(p => p.trim());
+                const values = parts.map(p => {
+                  if (variables[p] !== undefined) return Number(variables[p]);
+                  return isNaN(Number(p)) ? 1 : Number(p);
+                });
+                result = values.reduce((quotient, val, idx) => idx === 0 ? val : quotient / val, 0);
+              } else {
+                // If no operators, try to use the variable directly
+                result = variables[formula] !== undefined ? variables[formula] : 0;
+              }
             }
             
             // Store the result in variables
