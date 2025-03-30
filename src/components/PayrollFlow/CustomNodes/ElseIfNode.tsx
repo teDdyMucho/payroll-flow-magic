@@ -8,6 +8,7 @@ import { GlobalVariable } from '@/data/globalVariables';
 import { validateVariablesInExpression, highlightExpressionVariables } from '@/utils/flowUtils';
 
 interface ElseIfNodeProps {
+  
   id: string;
   data: {
     label: string;
