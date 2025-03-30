@@ -6,6 +6,29 @@ import { EventsManager } from './Calendar/EventsManager';
 import { CalendarBoard } from './Calendar/CalendarBoard';
 import PayrollFlowEditor from './PayrollFlow/PayrollFlowEditor';
 
+// Define a proper type for our events
+type EventType = 'payroll' | 'holiday' | 'meeting' | 'vacation';
+
+interface BaseEvent {
+  id: string;
+  title: string;
+  date: Date;
+  type: EventType;
+  icon: React.ReactNode;
+  description: string;
+}
+
+interface EmployeeEvent extends BaseEvent {
+  type: 'meeting' | 'vacation';
+  employees: string[];
+}
+
+interface StandardEvent extends BaseEvent {
+  type: 'payroll' | 'holiday';
+}
+
+type Event = StandardEvent | EmployeeEvent;
+
 // Mock data for demonstration
 const mockEmployees = [
   { id: '1', name: 'John Doe', position: 'Developer' },
@@ -15,12 +38,12 @@ const mockEmployees = [
   { id: '5', name: 'Alex Brown', position: 'Accountant' },
 ];
 
-const mockEvents = [
+const mockEvents: Event[] = [
   {
     id: '1',
     title: 'Monthly Payroll Processing',
     date: new Date(2023, 9, 15),
-    type: 'payroll' as const,
+    type: 'payroll',
     icon: <BarChart className="h-5 w-5" />,
     description: 'Process monthly payroll for all departments',
   },
@@ -28,7 +51,7 @@ const mockEvents = [
     id: '2',
     title: 'Company Holiday',
     date: new Date(2023, 9, 25),
-    type: 'holiday' as const,
+    type: 'holiday',
     icon: <CalendarDays className="h-5 w-5" />,
     description: 'Office closed for annual company holiday',
   },
@@ -36,7 +59,7 @@ const mockEvents = [
     id: '3',
     title: 'HR Meeting',
     date: new Date(2023, 9, 10),
-    type: 'meeting' as const,
+    type: 'meeting',
     icon: <Users className="h-5 w-5" />,
     employees: ['1', '4', '5'],
     description: 'Quarterly HR policy review meeting',
@@ -45,7 +68,7 @@ const mockEvents = [
     id: '4',
     title: 'John Doe Vacation',
     date: new Date(2023, 9, 18),
-    type: 'vacation' as const,
+    type: 'vacation',
     icon: <Users className="h-5 w-5" />,
     employees: ['1'],
     description: 'Approved vacation leave',
@@ -57,11 +80,23 @@ export const TabsNavigation = () => {
   const [events, setEvents] = React.useState(mockEvents);
   const [activeTab, setActiveTab] = React.useState("payroll-flow");
 
-  const handleAddEvent = (event: Omit<typeof mockEvents[0], 'id'>) => {
-    const newEvent = {
-      ...event,
-      id: `event-${Date.now()}`, // Simple ID generation
-    };
+  const handleAddEvent = (event: Omit<BaseEvent, 'id'> & { employees?: string[] }) => {
+    // Create a new event with the appropriate type
+    let newEvent: Event;
+    
+    if (event.type === 'meeting' || event.type === 'vacation') {
+      newEvent = {
+        ...event,
+        id: `event-${Date.now()}`,
+        employees: event.employees || [],
+      } as EmployeeEvent;
+    } else {
+      newEvent = {
+        ...event,
+        id: `event-${Date.now()}`,
+      } as StandardEvent;
+    }
+    
     setEvents([...events, newEvent]);
   };
 
