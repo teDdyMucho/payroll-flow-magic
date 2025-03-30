@@ -11,7 +11,8 @@ import {
   serverTimestamp,
   Timestamp
 } from 'firebase/firestore';
-import { Employee, Flow, GlobalVariable } from '@/types/database';
+import { Employee } from '@/types/employee';
+import { Flow, GlobalVariable } from '@/types/database';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBbFw1pqI-7phZa9w65LuaEa91WiFsIGuM",
@@ -240,7 +241,11 @@ export const getGlobalVariable = async (varId: string): Promise<GlobalVariable |
   const data = docSnap.data();
   return {
     id: docSnap.id,
-    ...data,
+    name: data.name,
+    type: data.type,
+    value: data.value,
+    description: data.description,
+    isSystemVariable: data.isSystemVariable,
     createdAt: data.createdAt?.toDate(),
     updatedAt: data.updatedAt?.toDate()
   } as GlobalVariable;
@@ -252,7 +257,11 @@ export const getAllGlobalVariables = async (): Promise<GlobalVariable[]> => {
     const data = doc.data();
     return {
       id: doc.id,
-      ...data,
+      name: data.name,
+      type: data.type,
+      value: data.value,
+      description: data.description,
+      isSystemVariable: data.isSystemVariable,
       createdAt: data.createdAt?.toDate(),
       updatedAt: data.updatedAt?.toDate()
     } as GlobalVariable;
