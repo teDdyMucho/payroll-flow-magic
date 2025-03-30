@@ -20,7 +20,7 @@ const mockEvents = [
     id: '1',
     title: 'Monthly Payroll Processing',
     date: new Date(2023, 9, 15),
-    type: 'payroll',
+    type: 'payroll' as const,
     icon: <BarChart className="h-5 w-5" />,
     description: 'Process monthly payroll for all departments',
   },
@@ -28,7 +28,7 @@ const mockEvents = [
     id: '2',
     title: 'Company Holiday',
     date: new Date(2023, 9, 25),
-    type: 'holiday',
+    type: 'holiday' as const,
     icon: <CalendarDays className="h-5 w-5" />,
     description: 'Office closed for annual company holiday',
   },
@@ -36,7 +36,7 @@ const mockEvents = [
     id: '3',
     title: 'HR Meeting',
     date: new Date(2023, 9, 10),
-    type: 'meeting',
+    type: 'meeting' as const,
     icon: <Users className="h-5 w-5" />,
     employees: ['1', '4', '5'],
     description: 'Quarterly HR policy review meeting',
@@ -45,7 +45,7 @@ const mockEvents = [
     id: '4',
     title: 'John Doe Vacation',
     date: new Date(2023, 9, 18),
-    type: 'vacation',
+    type: 'vacation' as const,
     icon: <Users className="h-5 w-5" />,
     employees: ['1'],
     description: 'Approved vacation leave',
@@ -57,7 +57,7 @@ export const TabsNavigation = () => {
   const [events, setEvents] = React.useState(mockEvents);
   const [activeTab, setActiveTab] = React.useState("payroll-flow");
 
-  const handleAddEvent = (event: Omit<typeof events[0], 'id'>) => {
+  const handleAddEvent = (event: Omit<typeof mockEvents[0], 'id'>) => {
     const newEvent = {
       ...event,
       id: `event-${Date.now()}`, // Simple ID generation

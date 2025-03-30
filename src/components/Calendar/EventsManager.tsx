@@ -33,6 +33,7 @@ interface EventsManagerProps {
   employees: Employee[];
 }
 
+// Define EVENT_ICONS outside of the component to avoid re-creation on each render
 const EVENT_ICONS = [
   { name: 'Calendar', icon: <Calendar className="h-5 w-5" /> },
   { name: 'Vacation', icon: <Plane className="h-5 w-5" /> },
@@ -100,6 +101,16 @@ export const EventsManager = ({ events, onEventAdd, employees }: EventsManagerPr
     } else {
       setSelectedEmployees([...selectedEmployees, employeeId]);
     }
+  };
+
+  // Helper function to safely check icon equality without using JSON.stringify
+  const isSelectedIcon = (iconA: React.ReactNode, iconB: React.ReactNode) => {
+    // Simple check for icon elements - comparing their types and props might be sufficient
+    if (React.isValidElement(iconA) && React.isValidElement(iconB)) {
+      return iconA.type === iconB.type && 
+             iconA.props.className === iconB.props.className;
+    }
+    return false;
   };
 
   const renderAddEventForm = () => (
@@ -173,7 +184,7 @@ export const EventsManager = ({ events, onEventAdd, employees }: EventsManagerPr
               type="button"
               variant="outline"
               size="icon"
-              className={`h-10 w-10 ${JSON.stringify(iconObj.icon) === JSON.stringify(selectedIcon) ? 'border-primary bg-primary/10' : ''}`}
+              className={`h-10 w-10 ${isSelectedIcon(iconObj.icon, selectedIcon) ? 'border-primary bg-primary/10' : ''}`}
               onClick={() => setSelectedIcon(iconObj.icon)}
             >
               {iconObj.icon}
