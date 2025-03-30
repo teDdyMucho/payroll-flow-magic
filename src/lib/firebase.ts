@@ -81,6 +81,7 @@ export const deleteEmployee = async (employeeId: string) => {
 
 // Flow operations
 export const addFlow = async (flowId: string, data: Omit<Flow, 'id' | 'createdAt' | 'updatedAt'>) => {
+  console.log('Adding flow:', { flowId, data });
   const timestamp = serverTimestamp();
   await setDoc(doc(flowsRef, flowId), {
     ...data,
@@ -103,19 +104,15 @@ export const getFlow = async (flowId: string): Promise<Flow | null> => {
 };
 
 export const getAllFlows = async (): Promise<Flow[]> => {
-  const snapshot = await getDocs(flowsRef);
-  return snapshot.docs.map(doc => {
-    const data = doc.data();
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: data.createdAt?.toDate(),
-      updatedAt: data.updatedAt?.toDate()
-    } as Flow;
-  });
+  const querySnapshot = await getDocs(flowsRef);
+  return querySnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  })) as Flow[];
 };
 
 export const updateFlow = async (flowId: string, data: Partial<Flow>) => {
+  console.log('Updating flow:', { flowId, data });
   const timestamp = serverTimestamp();
   await updateDoc(doc(flowsRef, flowId), {
     ...data,
@@ -124,6 +121,7 @@ export const updateFlow = async (flowId: string, data: Partial<Flow>) => {
 };
 
 export const deleteFlow = async (flowId: string) => {
+  console.log('Deleting flow:', flowId);
   await deleteDoc(doc(flowsRef, flowId));
 };
 
