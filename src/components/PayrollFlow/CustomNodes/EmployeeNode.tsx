@@ -16,6 +16,7 @@ import { Employee } from '@/data/employeeData';
 import { toast } from "@/components/ui/use-toast";
 
 interface EmployeeNodeProps {
+  
   id: string;
   data: {
     label: string;
