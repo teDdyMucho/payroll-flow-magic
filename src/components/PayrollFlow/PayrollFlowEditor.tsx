@@ -15,7 +15,7 @@ import { toast } from "@/components/ui/use-toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DollarSign, Database, Share2, Trash2, Save } from 'lucide-react';
 import { sampleEmployees, Employee } from '@/data/employeeData';
-import { initialGlobalVariables, GlobalVariable } from '@/data/globalVariables';
+import { GlobalVariable } from '@/types/database';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -23,7 +23,6 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus, Variable, Settings } from 'lucide-react';
-import { initializeGlobalVariables } from '@/lib/initializeDatabase';
 import { globalVariablesRef } from '@/lib/firebase';
 import { onSnapshot } from 'firebase/firestore';
 
@@ -214,9 +213,7 @@ const PayrollFlowEditor: React.FC = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
-  const [isGlobalVariableDialogOpen, setIsGlobalVariableDialogOpen] = useState(false);
   const [isGlobalVariableManagementOpen, setIsGlobalVariableManagementOpen] = useState(false);
-  const [currentVariable, setCurrentVariable] = useState<GlobalVariable>({ id: '', name: '', value: '', type: 'variable', description: '' });
   
   // Keep a reference to the current global variables for use in callbacks
   useEffect(() => {
@@ -452,7 +449,7 @@ const PayrollFlowEditor: React.FC = () => {
 
   useEffect(() => {
     // Initialize global variables
-    initializeGlobalVariables().catch(console.error);
+    // Removed initialGlobalVariables import which is no longer needed
   }, []); // Run once when component mounts
 
   const updateVariable = useCallback((name: string, value: any) => {
@@ -932,37 +929,6 @@ const PayrollFlowEditor: React.FC = () => {
     }
   };
 
-  const handleSaveGlobalVariable = () => {
-    if (!currentVariable.name) return;
-    
-    const newGlobalVariables = [...globalVariables];
-    
-    if (currentVariable.id) {
-      // Update existing variable
-      const index = newGlobalVariables.findIndex(v => v.id === currentVariable.id);
-      if (index !== -1) {
-        newGlobalVariables[index] = currentVariable;
-      }
-    } else {
-      // Add new variable
-      const newVariable = {
-        ...currentVariable,
-        id: Date.now().toString(),
-        type: currentVariable.type as 'variable' | 'constant' // Ensure correct type
-      };
-      newGlobalVariables.push(newVariable);
-    }
-    
-    setGlobalVariables(newGlobalVariables);
-    setIsGlobalVariableDialogOpen(false);
-    setCurrentVariable({ id: '', name: '', value: '', type: 'variable', description: '' });
-  };
-
-  const handleDeleteGlobalVariable = (id: string) => {
-    const newGlobalVariables = globalVariables.filter(v => v.id !== id);
-    setGlobalVariables(newGlobalVariables);
-  };
-
   return (
     <>
       <div className="h-full flex flex-col">
@@ -1104,158 +1070,11 @@ const PayrollFlowEditor: React.FC = () => {
         </Tabs>
       </div>
       
-      {/* Global Variable Dialog */}
-      <Dialog open={isGlobalVariableDialogOpen} onOpenChange={setIsGlobalVariableDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{currentVariable.id ? 'Edit' : 'Add'} Global Variable</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">Name</Label>
-              <Input 
-                id="name" 
-                value={currentVariable.name} 
-                onChange={(e) => setCurrentVariable({...currentVariable, name: e.target.value})}
-                className="col-span-3"
-              />
-            </div>
-            
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="value" className="text-right">Value</Label>
-              <Input 
-                id="value" 
-                value={currentVariable.value.toString()} 
-                onChange={(e) => setCurrentVariable({...currentVariable, value: e.target.value})}
-                className="col-span-3"
-              />
-            </div>
-            
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="type" className="text-right">Type</Label>
-              <Select 
-                value={currentVariable.type} 
-                onValueChange={(value: 'variable' | 'constant') => setCurrentVariable({...currentVariable, type: value})}
-              >
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="variable">Variable</SelectItem>
-                  <SelectItem value="constant">Constant</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="description" className="text-right">Description</Label>
-              <Textarea 
-                id="description" 
-                value={currentVariable.description} 
-                onChange={(e) => setCurrentVariable({...currentVariable, description: e.target.value})}
-                className="col-span-3"
-              />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsGlobalVariableDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveGlobalVariable}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Global Variables Management Panel */}
-      <Dialog open={isGlobalVariableManagementOpen} onOpenChange={setIsGlobalVariableManagementOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Variable className="h-5 w-5" /> Global Variables Management
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4 max-h-[60vh] overflow-auto">
-            <div className="flex justify-between items-center">
-              <div className="text-sm text-muted-foreground">
-                Global variables are available to all nodes in the flow
-              </div>
-              <Button 
-                onClick={() => {
-                  setCurrentVariable({ id: '', name: '', value: '', type: 'variable', description: '' });
-                  setIsGlobalVariableManagementOpen(false);
-                  setIsGlobalVariableDialogOpen(true);
-                }}
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <Plus className="h-4 w-4" /> Add Variable
-              </Button>
-            </div>
-            
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 px-4">Name</th>
-                  <th className="text-left py-2 px-4">Value</th>
-                  <th className="text-left py-2 px-4">Type</th>
-                  <th className="text-left py-2 px-4">Description</th>
-                  <th className="text-right py-2 px-4">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {globalVariables.map((variable) => (
-                  <tr key={variable.id} className="border-b hover:bg-muted/50">
-                    <td className="py-2 px-4 font-medium">{variable.name}</td>
-                    <td className="py-2 px-4">{variable.value.toString()}</td>
-                    <td className="py-2 px-4">
-                      <span className={`px-2 py-1 rounded-md text-xs ${
-                        variable.type === 'constant' 
-                          ? 'bg-purple-100 text-purple-800' 
-                          : 'bg-blue-100 text-blue-800'
-                      }`}>
-                        {variable.type}
-                      </span>
-                    </td>
-                    <td className="py-2 px-4">{variable.description}</td>
-                    <td className="py-2 px-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            setCurrentVariable(variable);
-                            setIsGlobalVariableManagementOpen(false);
-                            setIsGlobalVariableDialogOpen(true);
-                          }}
-                        >
-                          Edit
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleDeleteGlobalVariable(variable.id)}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {globalVariables.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-center text-muted-foreground">
-                      No global variables defined. Add one to get started.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsGlobalVariableManagementOpen(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Global Variables Management */}
+      <GlobalVariablesManager 
+        isOpen={isGlobalVariableManagementOpen}
+        onClose={() => setIsGlobalVariableManagementOpen(false)}
+      />
     </>
   );
 };

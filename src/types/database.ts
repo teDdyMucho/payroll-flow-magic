@@ -25,8 +25,8 @@ export interface GlobalVariable {
   id: string;
   name: string;
   value: any;
-  type: 'number' | 'string' | 'boolean' | 'object' | 'variable' | 'constant';
+  type: 'string' | 'number' | 'boolean';
   description?: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
 }
