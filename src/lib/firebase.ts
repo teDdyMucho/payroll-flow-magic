@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { Employee } from '@/types/employee';
 import { Flow, GlobalVariable } from '@/types/database';
+import { EmployeeAttendance, TimeRecord } from '@/types/attendance';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBbFw1pqI-7phZa9w65LuaEa91WiFsIGuM",
@@ -32,6 +33,7 @@ export const employeesRef = collection(db, 'employees');
 export const flowsRef = collection(db, 'flows');
 export const globalVariablesRef = collection(db, 'globalVariables');
 export const eventsRef = collection(db, 'events');
+export const attendanceRef = collection(db, 'attendance');
 
 // Employee operations
 export const addEmployee = async (employeeId: string, data: Omit<Employee, 'id'>) => {
@@ -335,4 +337,174 @@ export const updateEvent = async (eventId: string, data: Partial<any>) => {
 
 export const deleteEvent = async (eventId: string) => {
   await deleteDoc(doc(eventsRef, eventId));
+};
+
+// Attendance operations
+export const addAttendanceRecord = async (data: Omit<EmployeeAttendance, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const recordId = doc(attendanceRef).id;
+  const timestamp = serverTimestamp();
+  
+  await setDoc(doc(attendanceRef, recordId), {
+    ...data,
+    id: recordId,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  });
+  
+  return recordId;
+};
+
+export const getAttendanceRecord = async (recordId: string): Promise<EmployeeAttendance | null> => {
+  const docSnap = await getDoc(doc(attendanceRef, recordId));
+  if (!docSnap.exists()) return null;
+  
+  const data = docSnap.data();
+  return {
+    id: docSnap.id,
+    ...data,
+    date: data.date?.toDate(),
+    timeRecords: data.timeRecords.map((record: any) => ({
+      clockIn: record.clockIn?.toDate(),
+      clockOut: record.clockOut?.toDate()
+    })),
+    createdAt: data.createdAt?.toDate(),
+    updatedAt: data.updatedAt?.toDate()
+  } as EmployeeAttendance;
+};
+
+export const getAttendanceByDate = async (date: Date): Promise<EmployeeAttendance[]> => {
+  // Convert date to start and end of day for comparison
+  const startDate = new Date(date);
+  startDate.setHours(0, 0, 0, 0);
+  
+  const endDate = new Date(date);
+  endDate.setHours(23, 59, 59, 999);
+  
+  const snapshot = await getDocs(attendanceRef);
+  return snapshot.docs
+    .map(doc => {
+      const data = doc.data();
+      const recordDate = data.date?.toDate();
+      
+      // Only include records for the specified date
+      if (recordDate >= startDate && recordDate <= endDate) {
+        return {
+          id: doc.id,
+          ...data,
+          date: recordDate,
+          timeRecords: data.timeRecords.map((record: any) => ({
+            clockIn: record.clockIn?.toDate(),
+            clockOut: record.clockOut?.toDate()
+          })),
+          createdAt: data.createdAt?.toDate(),
+          updatedAt: data.updatedAt?.toDate()
+        } as EmployeeAttendance;
+      }
+      return null;
+    })
+    .filter(Boolean) as EmployeeAttendance[];
+};
+
+export const getAllAttendanceRecords = async (): Promise<EmployeeAttendance[]> => {
+  const snapshot = await getDocs(attendanceRef);
+  return snapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      date: data.date?.toDate(),
+      timeRecords: data.timeRecords.map((record: any) => ({
+        clockIn: record.clockIn?.toDate(),
+        clockOut: record.clockOut?.toDate()
+      })),
+      createdAt: data.createdAt?.toDate(),
+      updatedAt: data.updatedAt?.toDate()
+    } as EmployeeAttendance;
+  });
+};
+
+export const updateAttendanceRecord = async (recordId: string, data: Partial<EmployeeAttendance>) => {
+  const timestamp = serverTimestamp();
+  
+  // Handle timeRecords conversion for Firestore
+  const updateData = { ...data, updatedAt: timestamp };
+  
+  await updateDoc(doc(attendanceRef, recordId), updateData);
+};
+
+export const deleteAttendanceRecord = async (recordId: string) => {
+  await deleteDoc(doc(attendanceRef, recordId));
+};
+
+export const updateAttendanceStatus = async (recordId: string, status: 'Paid' | 'Unpaid') => {
+  const timestamp = serverTimestamp();
+  
+  console.log(`Updating attendance status for record ${recordId} to ${status}`);
+  
+  try {
+    // First verify the document exists
+    const docRef = doc(attendanceRef, recordId);
+    const docSnap = await getDoc(docRef);
+    
+    if (!docSnap.exists()) {
+      throw new Error(`Attendance record with ID ${recordId} does not exist`);
+    }
+    
+    // Perform the update
+    await updateDoc(docRef, {
+      status,
+      updatedAt: timestamp
+    });
+    
+    // Verify the update was successful
+    const updatedSnap = await getDoc(docRef);
+    const updatedData = updatedSnap.data();
+    
+    if (updatedData?.status !== status) {
+      console.error('Status update verification failed', {
+        expected: status,
+        actual: updatedData?.status
+      });
+      throw new Error('Status update verification failed');
+    }
+    
+    console.log(`Successfully updated attendance status for record ${recordId} to ${status}`);
+    return true;
+  } catch (error) {
+    console.error(`Error updating attendance status for record ${recordId}:`, error);
+    throw error;
+  }
+};
+
+export const addTimeRecord = async (attendanceId: string, timeRecord: TimeRecord) => {
+  const attendanceDoc = await getDoc(doc(attendanceRef, attendanceId));
+  if (!attendanceDoc.exists()) {
+    throw new Error(`Attendance record with ID ${attendanceId} does not exist`);
+  }
+  
+  const data = attendanceDoc.data();
+  const timeRecords = [...(data.timeRecords || []), timeRecord];
+  
+  await updateAttendanceRecord(attendanceId, { timeRecords });
+};
+
+export const updateTimeRecord = async (
+  attendanceId: string, 
+  index: number, 
+  timeRecord: Partial<TimeRecord>
+) => {
+  const attendanceDoc = await getDoc(doc(attendanceRef, attendanceId));
+  if (!attendanceDoc.exists()) {
+    throw new Error(`Attendance record with ID ${attendanceId} does not exist`);
+  }
+  
+  const data = attendanceDoc.data();
+  const timeRecords = [...(data.timeRecords || [])];
+  
+  if (index >= 0 && index < timeRecords.length) {
+    timeRecords[index] = { ...timeRecords[index], ...timeRecord };
+    await updateAttendanceRecord(attendanceId, { timeRecords });
+  } else {
+    throw new Error(`Time record at index ${index} does not exist`);
+  }
 };

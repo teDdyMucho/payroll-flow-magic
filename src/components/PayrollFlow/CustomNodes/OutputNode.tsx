@@ -39,7 +39,7 @@ const OutputNode: React.FC<OutputNodeProps> = ({ id, data, selected }) => {
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
   const [outputName, setOutputName] = useState<string>(data.outputName || 'Output');
   const [description, setDescription] = useState<string>(data.description || '');
-  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState<boolean>(true);
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState<boolean>(false);
   const [detectedEmployees, setDetectedEmployees] = useState<string[]>([]);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
   const [updateError, setUpdateError] = useState<string | null>(null);

@@ -173,9 +173,23 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
   // Add field to all employees
   const addBulkField = async (key: string, value: any) => {
     const updates = employees.map(async (employee) => {
-      await handleUpdateEmployee(employee.id, { [key]: value });
+      // Create updated fields object
+      const updatedFields = { 
+        ...employee.fields,
+        [key]: value 
+      };
+      
+      // Update the employee with the new fields
+      await handleUpdateEmployee(employee.id, { fields: updatedFields });
     });
+    
     await Promise.all(updates);
+    
+    // Show success message
+    toast({
+      title: "Bulk field added",
+      description: `Field "${key}" has been added to all employees.`
+    });
   };
 
   // Handle employee submit
@@ -768,7 +782,7 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
                           <Badge 
                             key={flowId} 
                             variant="secondary"
-                            className="flex items-center gap-1"
+                            className="flex items-center gap-1 py-1.5"
                           >
                             <GitBranch className="h-3 w-3" />
                             {getFlowNameById(flowId)}
@@ -830,8 +844,25 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
                 <div className="space-y-2 mt-2">
                   {Object.entries(currentEmployee.fields || {}).map(([key, value]) => (
                     <div key={key} className="flex items-center gap-2">
-                      <div className="flex-1 bg-gray-50 p-2 rounded">
-                        <span className="font-medium">{key}:</span> {value.toString()}
+                      <div className="flex-1 bg-gray-50 p-2 rounded flex items-center">
+                        <span className="font-medium mr-2">{key}:</span>
+                        <Input
+                          className="h-7 ml-auto"
+                          value={value.toString()}
+                          onChange={(e) => {
+                            const updatedFields = { ...currentEmployee.fields };
+                            // Try to preserve the original type (number, string, etc.)
+                            let newValue: string | number | boolean = e.target.value;
+                            if (typeof value === 'number') {
+                              newValue = Number(newValue) || 0;
+                            } else if (typeof value === 'boolean') {
+                              newValue = newValue.toLowerCase() === 'true';
+                            }
+                            // TypeScript fix: ensure fields is properly typed
+                            updatedFields[key] = newValue as any;
+                            setCurrentEmployee({ ...currentEmployee, fields: updatedFields });
+                          }}
+                        />
                       </div>
                       <Button
                         variant="ghost"
