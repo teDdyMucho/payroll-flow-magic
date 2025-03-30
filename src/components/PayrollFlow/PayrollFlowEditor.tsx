@@ -23,6 +23,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus, Variable, Settings } from 'lucide-react';
+import { initializeGlobalVariables } from '@/lib/initializeDatabase';
+import { globalVariablesRef } from '@/lib/firebase';
+import { onSnapshot } from 'firebase/firestore';
 
 interface NodeData {
   label: string;
@@ -203,8 +206,9 @@ const edgeTypes = {
 
 const PayrollFlowEditor: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const globalVariablesReference = useRef<GlobalVariable[]>([]);
   const [employees, setEmployees] = useState<Employee[]>(sampleEmployees);
-  const [globalVariables, setGlobalVariables] = useState<GlobalVariable[]>(initialGlobalVariables);
+  const [globalVariables, setGlobalVariables] = useState<GlobalVariable[]>([]);
   const [currentFlowVariables, setCurrentFlowVariables] = useState<Record<string, any>>({});
   const [activeTab, setActiveTab] = useState('editor');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -214,13 +218,23 @@ const PayrollFlowEditor: React.FC = () => {
   const [isGlobalVariableManagementOpen, setIsGlobalVariableManagementOpen] = useState(false);
   const [currentVariable, setCurrentVariable] = useState<GlobalVariable>({ id: '', name: '', value: '', type: 'variable', description: '' });
   
-  // Create a ref to store globalVariables
-  const globalVariablesRef = useRef<GlobalVariable[]>(globalVariables);
-  
-  // Update ref when globalVariables changes
+  // Keep a reference to the current global variables for use in callbacks
   useEffect(() => {
-    globalVariablesRef.current = globalVariables;
+    globalVariablesReference.current = globalVariables;
   }, [globalVariables]);
+
+  // Set up real-time sync with Firestore for global variables
+  useEffect(() => {
+    const unsubscribe = onSnapshot(globalVariablesRef, (snapshot) => {
+      const globalVarsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as GlobalVariable[];
+      setGlobalVariables(globalVarsData);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const initialNodes: Node[] = [{
     id: 'employee-1',
@@ -356,7 +370,7 @@ const PayrollFlowEditor: React.FC = () => {
 
     // Add global variables to the variables object using the ref
     // This way we don't need globalVariables in the dependency array
-    globalVariablesRef.current.forEach(variable => {
+    globalVariablesReference.current.forEach(variable => {
       variables[variable.name] = variable.value;
     });
 
@@ -435,6 +449,11 @@ const PayrollFlowEditor: React.FC = () => {
     // Update current flow variables
     setCurrentFlowVariables(variables);
   }, [nodes, edges, employees, setNodes, setCurrentFlowVariables, setEmployees]);
+
+  useEffect(() => {
+    // Initialize global variables
+    initializeGlobalVariables().catch(console.error);
+  }, []); // Run once when component mounts
 
   const updateVariable = useCallback((name: string, value: any) => {
     setCurrentFlowVariables(prev => {

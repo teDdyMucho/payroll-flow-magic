@@ -1,3 +1,5 @@
+import { Timestamp } from 'firebase/firestore';
+
 export interface Employee {
   id: string;
   name: string;
@@ -23,8 +25,8 @@ export interface GlobalVariable {
   id: string;
   name: string;
   value: any;
-  type: 'number' | 'string' | 'boolean' | 'object';
+  type: 'number' | 'string' | 'boolean' | 'object' | 'variable' | 'constant';
   description?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }

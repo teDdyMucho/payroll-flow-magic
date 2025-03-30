@@ -24,12 +24,12 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+export const db = getFirestore(app);
 
 // Collection references
 export const employeesRef = collection(db, 'employees');
 export const flowsRef = collection(db, 'flows');
-export const globalVarsRef = collection(db, 'globalVariables');
+export const globalVariablesRef = collection(db, 'globalVariables');
 
 // Employee operations
 export const addEmployee = async (employeeId: string, data: Omit<Employee, 'id'>) => {
@@ -129,16 +129,23 @@ export const deleteFlow = async (flowId: string) => {
 
 // Global variables operations
 export const addGlobalVariable = async (varId: string, data: Omit<GlobalVariable, 'id' | 'createdAt' | 'updatedAt'>) => {
+  console.log('Adding global variable:', { varId, data });
   const timestamp = serverTimestamp();
-  await setDoc(doc(globalVarsRef, varId), {
-    ...data,
-    createdAt: timestamp,
-    updatedAt: timestamp
-  });
+  try {
+    await setDoc(doc(globalVariablesRef, varId), {
+      ...data,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    });
+    console.log('Successfully added global variable');
+  } catch (error) {
+    console.error('Error adding global variable:', error);
+    throw error;
+  }
 };
 
 export const getGlobalVariable = async (varId: string): Promise<GlobalVariable | null> => {
-  const docSnap = await getDoc(doc(globalVarsRef, varId));
+  const docSnap = await getDoc(doc(globalVariablesRef, varId));
   if (!docSnap.exists()) return null;
   
   const data = docSnap.data();
@@ -151,7 +158,7 @@ export const getGlobalVariable = async (varId: string): Promise<GlobalVariable |
 };
 
 export const getAllGlobalVariables = async (): Promise<GlobalVariable[]> => {
-  const snapshot = await getDocs(globalVarsRef);
+  const snapshot = await getDocs(globalVariablesRef);
   return snapshot.docs.map(doc => {
     const data = doc.data();
     return {
@@ -165,12 +172,12 @@ export const getAllGlobalVariables = async (): Promise<GlobalVariable[]> => {
 
 export const updateGlobalVariable = async (varId: string, data: Partial<GlobalVariable>) => {
   const timestamp = serverTimestamp();
-  await updateDoc(doc(globalVarsRef, varId), {
+  await updateDoc(doc(globalVariablesRef, varId), {
     ...data,
     updatedAt: timestamp
   });
 };
 
 export const deleteGlobalVariable = async (varId: string) => {
-  await deleteDoc(doc(globalVarsRef, varId));
+  await deleteDoc(doc(globalVariablesRef, varId));
 };
