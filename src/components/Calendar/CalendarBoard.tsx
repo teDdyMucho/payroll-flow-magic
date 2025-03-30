@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { 
   Calendar, 
@@ -9,25 +8,35 @@ import {
   Plus, 
   Briefcase, 
   Clock, 
-  Upload
+  Upload,
+  CalendarDays,
+  Users,
+  BarChart
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-interface Event {
-  id: string;
-  title: string;
-  date: Date;
-  type: 'vacation' | 'payroll' | 'meeting' | 'holiday';
-  icon: React.ReactNode;
-  employees?: string[];
-}
+import { Event, EventType } from '../TabsNavigation';
 
 interface CalendarBoardProps {
   events: Event[];
 }
+
+// Helper function to get default icon based on event type
+const getDefaultIcon = (type: EventType): React.ReactNode => {
+  switch (type) {
+    case 'payroll':
+      return <BarChart className="h-5 w-5" />;
+    case 'holiday':
+      return <CalendarDays className="h-5 w-5" />;
+    case 'meeting':
+    case 'vacation':
+      return <Users className="h-5 w-5" />;
+    default:
+      return <Calendar className="h-5 w-5" />;
+  }
+};
 
 export const CalendarBoard = ({ events }: CalendarBoardProps) => {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -53,7 +62,7 @@ export const CalendarBoard = ({ events }: CalendarBoardProps) => {
     if (dayEvents.length === 0) return null;
     
     if (dayEvents.length === 1) {
-      return dayEvents[0].icon;
+      return dayEvents[0].icon || getDefaultIcon(dayEvents[0].type);
     }
     
     // Show count when multiple events
@@ -115,7 +124,7 @@ export const CalendarBoard = ({ events }: CalendarBoardProps) => {
                         className="text-primary"
                         title={event.title}
                       >
-                        {event.icon}
+                        {event.icon || getDefaultIcon(event.type)}
                       </div>
                     ))}
                     {eventsForDay.length > 3 && (
@@ -199,26 +208,27 @@ export const CalendarBoard = ({ events }: CalendarBoardProps) => {
                     onClick={() => handleDayClick(day)}
                   >
                     <Plus className="h-4 w-4 mr-1" />
-                    Details
+                    View
                   </Button>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-4">
-                <div className="space-y-2">
+              <CardContent className="p-4">
+                <div className="space-y-3">
                   {events.map(event => (
-                    <div 
-                      key={event.id} 
-                      className="flex items-center p-2 rounded-md hover:bg-accent"
-                    >
-                      <div className="mr-3 text-primary">
-                        {event.icon}
+                    <div key={event.id} className="flex items-start gap-3">
+                      <div className="text-primary mt-0.5">
+                        {event.icon || getDefaultIcon(event.type)}
                       </div>
-                      <div>
-                        <p className="font-medium">{event.title}</p>
-                        {event.employees && event.employees.length > 0 && (
-                          <p className="text-sm text-muted-foreground">
-                            {event.employees.length} employee(s) involved
-                          </p>
+                      <div className="flex-1">
+                        <h4 className="font-medium text-sm">{event.title}</h4>
+                        {event.description && (
+                          <p className="text-sm text-muted-foreground">{event.description}</p>
+                        )}
+                        {event.type === 'meeting' && 'employees' in event && event.employees && event.employees.length > 0 && (
+                          <div className="flex items-center mt-1 text-xs text-muted-foreground">
+                            <Users className="h-3 w-3 mr-1" />
+                            <span>{event.employees.length} attendees</span>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -228,120 +238,113 @@ export const CalendarBoard = ({ events }: CalendarBoardProps) => {
             </Card>
           ))
         ) : (
-          <div className="text-center p-8 text-muted-foreground">
-            No events scheduled for this month
+          <div className="text-center py-10 text-muted-foreground">
+            <Calendar className="h-12 w-12 mx-auto mb-2 opacity-20" />
+            <p>No events for this month</p>
           </div>
         )}
       </div>
     );
   };
 
-  return (
-    <div className="h-full flex flex-col">
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center space-x-2">
-          <h2 className="text-2xl font-bold">
-            {format(currentDate, 'MMMM yyyy')}
-          </h2>
-          <Button variant="outline" size="sm" onClick={goToday}>
-            Today
-          </Button>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Button variant="outline" size="icon" onClick={prevMonth}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="icon" onClick={nextMonth}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <div className="border rounded-md overflow-hidden flex">
-            <Button 
-              variant={viewType === 'month' ? 'default' : 'ghost'} 
-              size="sm"
-              onClick={() => setViewType('month')}
-              className="rounded-none"
-            >
-              <Grid2X2 className="h-4 w-4 mr-1" />
-              Grid
-            </Button>
-            <Button 
-              variant={viewType === 'list' ? 'default' : 'ghost'} 
-              size="sm"
-              onClick={() => setViewType('list')}
-              className="rounded-none"
-            >
-              <List className="h-4 w-4 mr-1" />
-              List
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-auto">
-        {viewType === 'month' ? renderMonthView() : renderListView()}
-      </div>
-
+  const renderDayDialog = () => {
+    if (!selectedDay) return null;
+    
+    const eventsForDay = getDayEvents(selectedDay);
+    
+    return (
       <Dialog open={dayDialogOpen} onOpenChange={setDayDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              {selectedDay && format(selectedDay, 'EEEE, MMMM d, yyyy')}
-            </DialogTitle>
+            <DialogTitle>{format(selectedDay, 'EEEE, MMMM d, yyyy')}</DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-4">
-            {selectedDay && getDayEvents(selectedDay).length > 0 ? (
-              <div className="space-y-2">
-                <h3 className="font-medium">Events</h3>
-                {getDayEvents(selectedDay).map(event => (
-                  <div 
-                    key={event.id} 
-                    className="flex items-center p-3 rounded-md border"
-                  >
-                    <div className="mr-3 text-primary">
-                      {event.icon}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium">{event.title}</p>
-                      {event.employees && event.employees.length > 0 && (
-                        <p className="text-sm text-muted-foreground">
-                          {event.employees.length} employee(s) involved
-                        </p>
+          <div className="mt-4 space-y-4">
+            {eventsForDay.length > 0 ? (
+              eventsForDay.map(event => (
+                <div key={event.id} className="flex items-start gap-3 p-3 rounded-md border">
+                  <div className="text-primary mt-0.5">
+                    {event.icon || getDefaultIcon(event.type)}
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-medium">{event.title}</h4>
+                    {event.description && (
+                      <p className="text-sm text-muted-foreground mt-1">{event.description}</p>
+                    )}
+                    
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <div className="flex items-center text-xs bg-muted px-2 py-1 rounded-full">
+                        <Clock className="h-3 w-3 mr-1" />
+                        <span>{format(new Date(event.date), 'h:mm a')}</span>
+                      </div>
+                      
+                      <div className="flex items-center text-xs bg-muted px-2 py-1 rounded-full">
+                        <Briefcase className="h-3 w-3 mr-1" />
+                        <span>{event.type}</span>
+                      </div>
+                      
+                      {event.type === 'meeting' && 'employees' in event && event.employees && event.employees.length > 0 && (
+                        <div className="flex items-center text-xs bg-muted px-2 py-1 rounded-full">
+                          <Users className="h-3 w-3 mr-1" />
+                          <span>{event.employees.length} attendees</span>
+                        </div>
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))
             ) : (
-              <div className="text-center py-4 text-muted-foreground">
-                No events scheduled for this day
+              <div className="text-center py-6 text-muted-foreground">
+                <Calendar className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                <p>No events scheduled for this day</p>
               </div>
             )}
-            
-            <div className="flex flex-col space-y-2">
-              <h3 className="font-medium">Actions</h3>
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" className="w-full">
-                  <Briefcase className="h-4 w-4 mr-2" />
-                  Initiate Payroll
-                </Button>
-                <Button variant="outline" className="w-full">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Event
-                </Button>
-                <Button variant="outline" className="w-full">
-                  <Clock className="h-4 w-4 mr-2" />
-                  Time Records
-                </Button>
-                <Button variant="outline" className="w-full">
-                  <Upload className="h-4 w-4 mr-2" />
-                  Upload Times
-                </Button>
-              </div>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={prevMonth}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <h2 className="text-xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+          <Button variant="outline" size="icon" onClick={nextMonth}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={goToday} className="ml-2">
+            Today
+          </Button>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <Button 
+            variant={viewType === 'month' ? "default" : "outline"} 
+            size="sm"
+            onClick={() => setViewType('month')}
+            className="flex items-center gap-1"
+          >
+            <Grid2X2 className="h-4 w-4" />
+            Month
+          </Button>
+          <Button 
+            variant={viewType === 'list' ? "default" : "outline"} 
+            size="sm"
+            onClick={() => setViewType('list')}
+            className="flex items-center gap-1"
+          >
+            <List className="h-4 w-4" />
+            List
+          </Button>
+        </div>
+      </div>
+      
+      {viewType === 'month' ? renderMonthView() : renderListView()}
+      {renderDayDialog()}
     </div>
   );
 };

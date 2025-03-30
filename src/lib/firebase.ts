@@ -31,6 +31,7 @@ export const db = getFirestore(app);
 export const employeesRef = collection(db, 'employees');
 export const flowsRef = collection(db, 'flows');
 export const globalVariablesRef = collection(db, 'globalVariables');
+export const eventsRef = collection(db, 'events');
 
 // Employee operations
 export const addEmployee = async (employeeId: string, data: Omit<Employee, 'id'>) => {
@@ -278,4 +279,60 @@ export const updateGlobalVariable = async (varId: string, data: Partial<GlobalVa
 
 export const deleteGlobalVariable = async (varId: string) => {
   await deleteDoc(doc(globalVariablesRef, varId));
+};
+
+// Events operations
+export const addEvent = async (eventData: Omit<any, 'id'>) => {
+  const eventId = doc(eventsRef).id; // Generate a new document ID
+  const timestamp = serverTimestamp();
+  
+  // Convert date to Firestore timestamp
+  const firestoreData = {
+    ...eventData,
+    date: Timestamp.fromDate(eventData.date),
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+  
+  // Remove icon as it's a React component and can't be stored in Firestore
+  const { icon, ...dataToStore } = firestoreData;
+  
+  await setDoc(doc(eventsRef, eventId), dataToStore);
+  return eventId;
+};
+
+export const getAllEvents = async () => {
+  const snapshot = await getDocs(eventsRef);
+  return snapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      date: data.date?.toDate(),
+      createdAt: data.createdAt?.toDate(),
+      updatedAt: data.updatedAt?.toDate()
+    };
+  });
+};
+
+export const updateEvent = async (eventId: string, data: Partial<any>) => {
+  const timestamp = serverTimestamp();
+  
+  // Convert date to Firestore timestamp if present
+  const firestoreData = { ...data };
+  if (firestoreData.date) {
+    firestoreData.date = Timestamp.fromDate(firestoreData.date);
+  }
+  
+  // Remove icon if present
+  const { icon, ...dataToStore } = firestoreData;
+  
+  await updateDoc(doc(eventsRef, eventId), {
+    ...dataToStore,
+    updatedAt: timestamp
+  });
+};
+
+export const deleteEvent = async (eventId: string) => {
+  await deleteDoc(doc(eventsRef, eventId));
 };

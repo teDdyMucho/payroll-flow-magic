@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Calendar, Clock, Users, Star, Flag, Briefcase, Heart, Award, Gift, PartyPopper, Coffee, Plane, Umbrella } from 'lucide-react';
 import { format } from 'date-fns';
@@ -10,13 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "@/components/ui/use-toast";
 
 interface Event {
   id: string;
   title: string;
   date: Date;
   type: 'vacation' | 'payroll' | 'meeting' | 'holiday';
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   description?: string;
   employees?: string[];
 }
@@ -29,7 +29,7 @@ interface Employee {
 
 interface EventsManagerProps {
   events: Event[];
-  onEventAdd: (event: Omit<Event, 'id'>) => void;
+  onEventAdd: (event: Omit<Event, 'id' | 'icon'> & { icon?: React.ReactNode }) => void;
   employees: Employee[];
 }
 
@@ -62,37 +62,59 @@ export const EventsManager = ({ events, onEventAdd, employees }: EventsManagerPr
     title: '',
     date: new Date(),
     type: 'meeting',
-    icon: <Calendar className="h-5 w-5" />,
+    description: '',
   });
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [selectedIcon, setSelectedIcon] = useState<React.ReactNode>(<Calendar className="h-5 w-5" />);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!newEvent.title || !newEvent.date) {
+      toast({
+        title: "Missing information",
+        description: "Please provide a title and date for the event.",
+        variant: "destructive"
+      });
       return;
     }
     
-    onEventAdd({
-      title: newEvent.title,
-      date: newEvent.date,
-      type: newEvent.type as 'vacation' | 'payroll' | 'meeting' | 'holiday',
-      icon: selectedIcon,
-      description: newEvent.description,
-      employees: selectedEmployees.length > 0 ? selectedEmployees : undefined,
-    });
+    setIsSubmitting(true);
     
-    // Reset form
-    setNewEvent({
-      title: '',
-      date: new Date(),
-      type: 'meeting',
-      icon: <Calendar className="h-5 w-5" />,
-    });
-    setSelectedEmployees([]);
-    setSelectedIcon(<Calendar className="h-5 w-5" />);
+    try {
+      await onEventAdd({
+        title: newEvent.title,
+        date: newEvent.date,
+        type: newEvent.type as 'vacation' | 'payroll' | 'meeting' | 'holiday',
+        description: newEvent.description || '',
+        employees: selectedEmployees.length > 0 ? selectedEmployees : undefined,
+        icon: selectedIcon,
+      });
+      
+      // Reset form
+      setNewEvent({
+        title: '',
+        date: new Date(),
+        type: 'meeting',
+        description: '',
+      });
+      setSelectedEmployees([]);
+      setSelectedIcon(<Calendar className="h-5 w-5" />);
+      
+      // Switch to view events tab
+      setActiveTab("view-events");
+    } catch (error) {
+      console.error('Error submitting event:', error);
+      toast({
+        title: "Error adding event",
+        description: "There was a problem adding your event. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const toggleEmployeeSelection = (employeeId: string) => {
@@ -237,8 +259,15 @@ export const EventsManager = ({ events, onEventAdd, employees }: EventsManagerPr
         </div>
       </div>
 
-      <Button type="submit" className="w-full">
-        Add Event
+      <Button type="submit" className="w-full" disabled={isSubmitting}>
+        {isSubmitting ? (
+          <>
+            <span className="animate-spin mr-2">⟳</span>
+            Adding Event...
+          </>
+        ) : (
+          'Add Event'
+        )}
       </Button>
     </form>
   );

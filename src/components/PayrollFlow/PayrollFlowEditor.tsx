@@ -13,7 +13,7 @@ import FlowsManager from './FlowsManager';
 import { Button } from '@/components/ui/button';
 import { toast } from "@/components/ui/use-toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { DollarSign, Database, Share2, Trash2, Save } from 'lucide-react';
+import { DollarSign, Database, Share2, Trash2, Save, FileDown, FileText, Variable, Settings } from 'lucide-react';
 import { sampleEmployees, Employee } from '@/data/employeeData';
 import { GlobalVariable } from '@/types/database';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
@@ -22,8 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Variable, Settings } from 'lucide-react';
-import { globalVariablesRef, employeesRef, getAllEmployees } from '@/lib/firebase';
+import { globalVariablesRef, employeesRef, getAllEmployees, flowsRef, addFlow, updateFlow } from '@/lib/firebase';
 import { onSnapshot } from 'firebase/firestore';
 
 interface NodeData {
@@ -215,6 +214,15 @@ const PayrollFlowEditor: React.FC = () => {
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   const [isGlobalVariableManagementOpen, setIsGlobalVariableManagementOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [newFlowName, setNewFlowName] = useState('');
+  const [newFlowDescription, setNewFlowDescription] = useState('');
+  const [flows, setFlows] = useState<any[]>([]);
+  const [currentFlowId, setCurrentFlowId] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [showUnsavedChangesDialog, setShowUnsavedChangesDialog] = useState(false);
+  const [pendingFlowLoad, setPendingFlowLoad] = useState<{nodes: Node[], edges: Edge[], flowId?: string} | null>(null);
   
   // Keep a reference to the current global variables for use in callbacks
   useEffect(() => {
@@ -260,6 +268,19 @@ const PayrollFlowEditor: React.FC = () => {
     };
 
     loadEmployees();
+  }, []);
+
+  // Load flows from Firestore
+  useEffect(() => {
+    const unsubscribe = onSnapshot(flowsRef, (snapshot) => {
+      const flowsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setFlows(flowsData);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const initialNodes: Node[] = [{
@@ -481,6 +502,12 @@ const PayrollFlowEditor: React.FC = () => {
     // Removed initialGlobalVariables import which is no longer needed
   }, []); // Run once when component mounts
 
+  useEffect(() => {
+    if (currentFlowId && !isLoading) {
+      setHasUnsavedChanges(true);
+    }
+  }, [nodes, edges, currentFlowId, isLoading]);
+
   const updateVariable = useCallback((name: string, value: any) => {
     setCurrentFlowVariables(prev => {
       if (prev[name] === value) return prev;
@@ -680,15 +707,41 @@ const PayrollFlowEditor: React.FC = () => {
     }));
   }, [setNodes]);
 
-  const loadFlow = useCallback((newNodes: Node[], newEdges: Edge[]) => {
-    setNodes(newNodes.map(node => ({
+  const loadFlow = useCallback((loadedNodes: Node[], loadedEdges: Edge[], flowId?: string) => {
+    if (hasUnsavedChanges && currentFlowId) {
+      // Show custom dialog instead of browser confirm
+      setPendingFlowLoad({ nodes: loadedNodes, edges: loadedEdges, flowId });
+      setShowUnsavedChangesDialog(true);
+      return;
+    }
+    
+    // Proceed with loading the flow
+    proceedWithFlowLoad(loadedNodes, loadedEdges, flowId);
+  }, [hasUnsavedChanges, currentFlowId]);
+
+  const proceedWithFlowLoad = useCallback((loadedNodes: Node[], loadedEdges: Edge[], flowId?: string) => {
+    setIsLoading(true);
+    
+    // Clear current flow variables
+    setCurrentFlowVariables({});
+    
+    // Set current flow ID if provided
+    if (flowId) {
+      setCurrentFlowId(flowId);
+    } else {
+      setCurrentFlowId(null);
+    }
+    
+    // Reset unsaved changes flag
+    setHasUnsavedChanges(false);
+    
+    setNodes(loadedNodes.map(node => ({
       ...node,
       data: {
         ...node.data,
         employees,
-        globalVariables,
         variables: currentFlowVariables,
-        setEmployees,
+        globalVariables,
         onFieldChange,
         onVariableNameChange,
         onEmployeeChange,
@@ -697,8 +750,11 @@ const PayrollFlowEditor: React.FC = () => {
         onFormulaChange,
         onOperationChange,
         onResultVariableChange,
+        setEmployees,
         onOutputNameChange,
         onDescriptionChange,
+        onSelectedVariableChange,
+        onSelectedFieldChange,
         onConditionChange,
         onTruePathChange,
         onFalsePathChange,
@@ -707,19 +763,20 @@ const PayrollFlowEditor: React.FC = () => {
         updateVariable
       }
     })));
-    setEdges(newEdges);
+    setEdges(loadedEdges);
     
     toast({
       title: "Flow loaded",
       description: "The selected flow has been loaded successfully"
     });
+    setIsLoading(false);
   }, [
     employees, globalVariables, currentFlowVariables, setEmployees,
     onFieldChange, onVariableNameChange, onEmployeeChange, onCustomFieldsChange,
     onSearchTermChange, onFormulaChange, onOperationChange, onResultVariableChange, 
     onOutputNameChange, onDescriptionChange, onConditionChange, 
     onTruePathChange, onFalsePathChange, onCodeChange, 
-    onOutputVariableChange, updateVariable, setNodes, setEdges
+    onOutputVariableChange, updateVariable, setNodes, setEdges, setCurrentFlowId, setHasUnsavedChanges, setIsLoading
   ]);
 
   const updateNodesWithCallbacks = useCallback(() => {
@@ -958,24 +1015,117 @@ const PayrollFlowEditor: React.FC = () => {
     }
   };
 
+  const saveCurrentFlow = async () => {
+    if (!newFlowName.trim()) {
+      toast({
+        title: "Error",
+        description: "Please provide a name for the flow",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const flowId = `flow-${Date.now()}`;
+      const flowData = {
+        name: newFlowName,
+        description: newFlowDescription,
+        nodes: nodes.map(node => ({
+          ...node,
+          data: { ...node.data }
+        })),
+        edges: edges
+      };
+
+      await addFlow(flowId, flowData);
+      
+      setCurrentFlowId(flowId);
+      setHasUnsavedChanges(false);
+      setShowSaveDialog(false);
+      setNewFlowName('');
+      setNewFlowDescription('');
+      
+      toast({
+        title: "Flow saved",
+        description: "Your flow has been saved successfully"
+      });
+    } catch (error) {
+      console.error("Error saving flow:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save flow. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const updateCurrentFlow = async () => {
+    if (!currentFlowId) {
+      toast({
+        title: "Error",
+        description: "No flow is currently loaded",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const currentFlow = flows.find(flow => flow.id === currentFlowId);
+      if (!currentFlow) {
+        toast({
+          title: "Error",
+          description: "Could not find the current flow",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const flowData = {
+        name: currentFlow.name,
+        description: currentFlow.description,
+        nodes: nodes.map(node => ({
+          ...node,
+          data: { ...node.data }
+        })),
+        edges: edges
+      };
+
+      await updateFlow(currentFlowId, flowData);
+      
+      setHasUnsavedChanges(false);
+      
+      toast({
+        title: "Flow updated",
+        description: "Your flow has been updated successfully"
+      });
+    } catch (error) {
+      console.error("Error updating flow:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update flow. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   return (
     <>
       <div className="h-full flex flex-col">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-          <div className="border-b px-4">
-            <TabsList className="mb-0">
-              <TabsTrigger value="editor" className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4" /> Payroll Flow Editor
+          <div className="border-b px-1">
+            <TabsList className="h-8 mb-0">
+              <TabsTrigger value="editor" className="flex items-center gap-1 text-xs py-1">
+                <DollarSign className="h-3 w-3" /> Payroll Flow
               </TabsTrigger>
-              <TabsTrigger value="database" className="flex items-center gap-2">
-                <Database className="h-4 w-4" /> Employee Database
+              <TabsTrigger value="database" className="flex items-center gap-1 text-xs py-1">
+                <Database className="h-3 w-3" /> Employees
               </TabsTrigger>
             </TabsList>
           </div>
           
           {activeTab === "editor" && (
             <div className="flex-1 flex overflow-hidden">
-              <div className="w-64 border-r h-full overflow-auto scrollbar-visible">
+              <div className="w-48 border-r h-full overflow-auto scrollbar-visible">
                 <Sidebar onDragStart={onDragStart} globalVariables={globalVariables} />
               </div>
               <div className="flex-1 h-full" ref={reactFlowWrapper}>
@@ -992,89 +1142,106 @@ const PayrollFlowEditor: React.FC = () => {
                   edgeTypes={edgeTypes} 
                   onSelectionChange={onSelectionChange} 
                   fitView
+                  minZoom={0.4}
+                  maxZoom={1.5}
+                  defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
                 >
-                  <Controls />
-                  <MiniMap nodeStrokeWidth={3} zoomable pannable />
+                  <Controls position="bottom-right" showInteractive={false} className="scale-75" />
+                  <MiniMap 
+                    nodeStrokeWidth={2} 
+                    zoomable 
+                    pannable 
+                    position="bottom-left" 
+                    className="scale-75 opacity-70 hover:opacity-100 transition-opacity"
+                    nodeBorderRadius={2}
+                    maskColor="rgba(240, 240, 240, 0.4)"
+                  />
                   <Background color="#aaa" gap={16} />
-                  <Panel position="top-right" className="flex gap-2">
-                    <FlowsManager 
-                      currentNodes={nodes} 
-                      currentEdges={edges} 
-                      onLoadFlow={loadFlow}
-                    />
-                    
-                    <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
-                      <DrawerTrigger asChild>
-                        <Button variant="outline" className="flex items-center gap-2">
-                          <Database className="h-4 w-4" /> 
-                          Flow Variables
-                        </Button>
-                      </DrawerTrigger>
-                      <DrawerContent className="p-4 max-h-[40vh]">
-                        <div className="space-y-4">
-                          <h3 className="text-lg font-semibold">Current Flow Variables</h3>
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-3 gap-2">
-                              <div className="font-medium text-sm">Variable</div>
-                              <div className="font-medium text-sm">Type</div>
-                              <div className="font-medium text-sm">Value</div>
-                            </div>
-                            <div className="space-y-1 max-h-[25vh] overflow-y-auto">
-                              {(() => {
-                                // Track displayed variable names to avoid duplicates
-                                const displayedVariables = new Set();
-                                
-                                // First show flow variables
-                                const flowVariableElements = Object.entries(currentFlowVariables).map(([key, value]) => {
-                                  displayedVariables.add(key);
-                                  return (
-                                    <div key={key} className="grid grid-cols-3 gap-2 py-1 border-b">
-                                      <div className="text-sm font-medium">{key}</div>
-                                      <div className="text-sm">{typeof value}</div>
-                                      <div className="text-sm">{String(value)}</div>
-                                    </div>
-                                  );
-                                });
-                                
-                                // Then show global variables that haven't been displayed yet
-                                const globalVariableElements = globalVariables
-                                  .filter(variable => !displayedVariables.has(variable.name))
-                                  .map(variable => (
-                                    <div key={variable.id} className="grid grid-cols-3 gap-2 py-1 border-b">
-                                      <div className="text-sm font-medium">{variable.name}</div>
-                                      <div className="text-sm">{variable.type}</div>
-                                      <div className="text-sm">{String(variable.value)}</div>
-                                    </div>
-                                  ));
-                                
-                                // Return combined elements
-                                return [...flowVariableElements, ...globalVariableElements];
-                              })()}
-                            </div>
-                          </div>
-                        </div>
-                      </DrawerContent>
-                    </Drawer>
-                    
-                    <Button 
-                      onClick={() => {
-                        setIsGlobalVariableManagementOpen(true);
-                      }}
-                      variant="outline"
-                      className="flex items-center gap-2"
-                    >
-                      <Variable className="h-4 w-4" /> Global Variables
-                    </Button>
-                    
-                    <Button onClick={deleteSelectedNodes} variant="outline" className="flex items-center gap-2 text-red-600 border-red-200 hover:bg-red-50" disabled={selectedNodes.length === 0}>
-                      <Trash2 className="h-4 w-4" />
-                      Delete Node
-                    </Button>
-                    
-                    <Button onClick={runPayrollFlow} className="bg-green-600 hover:bg-green-700 flex items-center gap-2">
-                      <DollarSign className="h-4 w-4" /> 
-                      Run Payroll Flow
-                    </Button>
+                  <Panel position="top-right" className="flex flex-col gap-1.5 items-end">
+                    <div className="bg-white/90 backdrop-blur-sm shadow-sm border border-gray-200 rounded-md p-1.5 flex flex-col gap-1.5 w-36">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="text-xs h-7 w-full px-2 py-1 hover:bg-blue-50 hover:border-blue-200 transition-all flex items-center justify-start"
+                        onClick={() => {
+                          loadFlow([], []);
+                        }}
+                      >
+                        <FileText className="h-3 w-3 mr-1.5" /> New Flow
+                      </Button>
+                      
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className={`text-xs h-7 w-full px-2 py-1 transition-all flex items-center justify-start ${
+                          hasUnsavedChanges && currentFlowId 
+                            ? "bg-red-50 border-red-200 hover:bg-red-100 hover:border-red-300 text-red-600" 
+                            : "hover:bg-blue-50 hover:border-blue-200"
+                        }`}
+                        onClick={() => {
+                          if (hasUnsavedChanges && currentFlowId) {
+                            updateCurrentFlow();
+                          } else {
+                            setShowSaveDialog(true);
+                          }
+                        }}
+                      >
+                        <Save className="h-3 w-3 mr-1.5" /> 
+                        {hasUnsavedChanges && currentFlowId ? "Update Flow" : "Save Flow"}
+                      </Button>
+                      
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="text-xs h-7 w-full px-2 py-1 hover:bg-blue-50 hover:border-blue-200 transition-all flex items-center justify-start"
+                        onClick={() => setShowLoadDialog(true)}
+                      >
+                        <FileDown className="h-3 w-3 mr-1.5" /> Load Flow
+                      </Button>
+                      
+                      <div className="border-t border-gray-200 my-0.5"></div>
+                      
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="text-xs h-7 w-full px-2 py-1 hover:bg-green-50 hover:border-green-200 transition-all flex items-center justify-start"
+                        onClick={runPayrollFlow}
+                      >
+                        <DollarSign className="h-3 w-3 mr-1.5" /> Run Flow
+                      </Button>
+                      
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="text-xs h-7 w-full px-2 py-1 hover:bg-purple-50 hover:border-purple-200 transition-all flex items-center justify-start"
+                        onClick={() => setIsGlobalVariableManagementOpen(true)}
+                      >
+                        <Variable className="h-3 w-3 mr-1.5" /> Variables
+                      </Button>
+                      
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        className="text-xs h-7 w-full px-2 py-1 hover:bg-cyan-50 hover:border-cyan-200 transition-all flex items-center justify-start"
+                        onClick={() => {
+                          if (reactFlowInstance) {
+                            reactFlowInstance.fitView({ padding: 0.2, duration: 800 });
+                          }
+                        }}
+                      >
+                        <Settings className="h-3 w-3 mr-1.5" /> Fit View
+                      </Button>
+                      
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="text-xs h-7 w-full px-2 py-1 hover:bg-red-50 hover:border-red-200 transition-all flex items-center justify-start"
+                        onClick={deleteSelectedNodes}
+                        disabled={selectedNodes.length === 0}
+                      >
+                        <Trash2 className="h-3 w-3 mr-1.5" /> Delete Node
+                      </Button>
+                    </div>
                   </Panel>
                 </ReactFlow>
               </div>
@@ -1104,6 +1271,161 @@ const PayrollFlowEditor: React.FC = () => {
         isOpen={isGlobalVariableManagementOpen}
         onClose={() => setIsGlobalVariableManagementOpen(false)}
       />
+      
+      {/* Save Flow Dialog */}
+      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Current Flow</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="flow-name">Flow Name</Label>
+              <Input 
+                id="flow-name" 
+                value={newFlowName} 
+                onChange={(e) => setNewFlowName(e.target.value)}
+                placeholder="Enter a name for this flow"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="flow-description">Description (optional)</Label>
+              <Input 
+                id="flow-description" 
+                value={newFlowDescription} 
+                onChange={(e) => setNewFlowDescription(e.target.value)}
+                placeholder="Enter a description for this flow"
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+            <Button onClick={saveCurrentFlow}>Save Flow</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unsaved Changes Warning Dialog */}
+      <Dialog open={showUnsavedChangesDialog} onOpenChange={setShowUnsavedChangesDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-amber-600">Unsaved Changes</DialogTitle>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <p className="mb-2">You have unsaved changes to the current flow.</p>
+            <p>What would you like to do?</p>
+          </div>
+          
+          <DialogFooter className="flex justify-between">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowUnsavedChangesDialog(false);
+                setPendingFlowLoad(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <div className="space-x-2">
+              <Button 
+                variant="outline"
+                className="border-amber-200 bg-amber-50 hover:bg-amber-100 hover:text-amber-900"
+                onClick={() => {
+                  if (currentFlowId) {
+                    updateCurrentFlow().then(() => {
+                      if (pendingFlowLoad) {
+                        proceedWithFlowLoad(
+                          pendingFlowLoad.nodes, 
+                          pendingFlowLoad.edges, 
+                          pendingFlowLoad.flowId
+                        );
+                      }
+                      setShowUnsavedChangesDialog(false);
+                      setPendingFlowLoad(null);
+                    });
+                  }
+                }}
+              >
+                Save Changes
+              </Button>
+              <Button 
+                variant="outline"
+                className="border-red-200 bg-red-50 hover:bg-red-100 hover:text-red-900"
+                onClick={() => {
+                  if (pendingFlowLoad) {
+                    proceedWithFlowLoad(
+                      pendingFlowLoad.nodes, 
+                      pendingFlowLoad.edges, 
+                      pendingFlowLoad.flowId
+                    );
+                  }
+                  setShowUnsavedChangesDialog(false);
+                  setPendingFlowLoad(null);
+                }}
+              >
+                Discard Changes
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Load Flow Dialog */}
+      <Dialog open={showLoadDialog} onOpenChange={setShowLoadDialog}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Load Flow</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {flows.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">
+                No saved flows found
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="grid grid-cols-[1fr,auto,auto] gap-4 font-medium text-sm">
+                  <div>Name</div>
+                  <div>Last Updated</div>
+                  <div>Actions</div>
+                </div>
+                
+                {flows.map(flow => (
+                  <div key={flow.id} className="grid grid-cols-[1fr,auto,auto] gap-4 items-center py-2 border-b">
+                    <div>
+                      <div className="font-medium">{flow.name}</div>
+                      {flow.description && <div className="text-xs text-gray-500">{flow.description}</div>}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {flow.updatedAt ? new Date(flow.updatedAt.toDate()).toLocaleString() : 'N/A'}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => {
+                          loadFlow(flow.nodes, flow.edges, flow.id);
+                          setShowLoadDialog(false);
+                        }}
+                      >
+                        Load
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLoadDialog(false)}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
