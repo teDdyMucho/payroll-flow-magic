@@ -79,6 +79,79 @@ export const deleteEmployee = async (employeeId: string) => {
   await deleteDoc(doc(employeesRef, employeeId));
 };
 
+// Employee-Flow linking operations
+export const linkFlowToEmployee = async (employeeId: string, flowId: string, fieldName?: string) => {
+  console.log('Linking flow to employee:', { employeeId, flowId, fieldName });
+  const timestamp = serverTimestamp();
+  
+  // Get the employee document
+  const employeeDoc = await getDoc(doc(employeesRef, employeeId));
+  if (!employeeDoc.exists()) {
+    throw new Error(`Employee with ID ${employeeId} does not exist`);
+  }
+  
+  // Update the employee document with the linked flow
+  const linkedFlows = employeeDoc.data().linkedFlows || {};
+  
+  if (fieldName) {
+    // Link to a specific field
+    linkedFlows[fieldName] = flowId;
+  } else {
+    // For general employee flows, store as an array under _flows key
+    const generalFlows = linkedFlows._flows || [];
+    if (!generalFlows.includes(flowId)) {
+      generalFlows.push(flowId);
+    }
+    linkedFlows._flows = generalFlows;
+  }
+  
+  await updateDoc(doc(employeesRef, employeeId), {
+    linkedFlows,
+    updatedAt: timestamp
+  });
+};
+
+export const unlinkFlowFromEmployee = async (employeeId: string, flowId?: string, fieldName?: string) => {
+  console.log('Unlinking flow from employee:', { employeeId, flowId, fieldName });
+  const timestamp = serverTimestamp();
+  
+  // Get the employee document
+  const employeeDoc = await getDoc(doc(employeesRef, employeeId));
+  if (!employeeDoc.exists()) {
+    throw new Error(`Employee with ID ${employeeId} does not exist`);
+  }
+  
+  // Update the employee document to remove the linked flow
+  const linkedFlows = employeeDoc.data().linkedFlows || {};
+  
+  if (fieldName) {
+    // Unlink from a specific field
+    delete linkedFlows[fieldName];
+  } else if (flowId) {
+    // Unlink specific flow from general employee flows
+    const generalFlows = linkedFlows._flows || [];
+    linkedFlows._flows = generalFlows.filter(id => id !== flowId);
+  } else {
+    // Unlink all general flows
+    delete linkedFlows._flows;
+  }
+  
+  await updateDoc(doc(employeesRef, employeeId), {
+    linkedFlows,
+    updatedAt: timestamp
+  });
+};
+
+export const bulkLinkFlowToEmployees = async (employeeIds: string[], flowId: string, fieldName?: string) => {
+  console.log('Bulk linking flow to employees:', { employeeIds, flowId, fieldName });
+  
+  const operations = employeeIds.map(employeeId => 
+    linkFlowToEmployee(employeeId, flowId, fieldName)
+  );
+  
+  await Promise.all(operations);
+};
+
 // Flow operations
 export const addFlow = async (flowId: string, data: Omit<Flow, 'id' | 'createdAt' | 'updatedAt'>) => {
   console.log('Adding flow:', { flowId, data });

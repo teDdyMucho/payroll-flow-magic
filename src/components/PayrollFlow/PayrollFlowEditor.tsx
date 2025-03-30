@@ -23,7 +23,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus, Variable, Settings } from 'lucide-react';
-import { globalVariablesRef } from '@/lib/firebase';
+import { globalVariablesRef, employeesRef, getAllEmployees } from '@/lib/firebase';
 import { onSnapshot } from 'firebase/firestore';
 
 interface NodeData {
@@ -206,7 +206,7 @@ const edgeTypes = {
 const PayrollFlowEditor: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const globalVariablesReference = useRef<GlobalVariable[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>(sampleEmployees);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [globalVariables, setGlobalVariables] = useState<GlobalVariable[]>([]);
   const [currentFlowVariables, setCurrentFlowVariables] = useState<Record<string, any>>({});
   const [activeTab, setActiveTab] = useState('editor');
@@ -214,6 +214,7 @@ const PayrollFlowEditor: React.FC = () => {
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   const [isGlobalVariableManagementOpen, setIsGlobalVariableManagementOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Keep a reference to the current global variables for use in callbacks
   useEffect(() => {
@@ -231,6 +232,34 @@ const PayrollFlowEditor: React.FC = () => {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // Load employee database from Firestore on component mount
+  useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        setIsLoading(true);
+        const employeeData = await getAllEmployees();
+        if (employeeData.length > 0) {
+          setEmployees(employeeData);
+        } else {
+          // If no employees in database, use sample data
+          setEmployees(sampleEmployees);
+        }
+      } catch (error) {
+        console.error('Error loading employees:', error);
+        toast({
+          title: "Error loading employees",
+          description: "Failed to load employee database. Using sample data instead.",
+          variant: "destructive"
+        });
+        setEmployees(sampleEmployees);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadEmployees();
   }, []);
 
   const initialNodes: Node[] = [{

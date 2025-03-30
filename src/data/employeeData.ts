@@ -10,6 +10,9 @@ export interface Employee {
     name: string;
     assignedAt: Date;
   }[];
+  linkedFlows?: {
+    [key: string]: string | string[]; // Can be fieldName -> flowId or _flows -> flowId[]
+  };
 }
 
 export const sampleEmployees: Employee[] = [
