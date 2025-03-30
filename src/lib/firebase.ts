@@ -176,6 +176,24 @@ export const getFlow = async (flowId: string): Promise<Flow | null> => {
   } as Flow;
 };
 
+export const getFlowById = async (flowId: string): Promise<Flow | null> => {
+  try {
+    const docSnap = await getDoc(doc(flowsRef, flowId));
+    if (!docSnap.exists()) return null;
+    
+    const data = docSnap.data();
+    return {
+      id: docSnap.id,
+      ...data,
+      createdAt: data.createdAt?.toDate(),
+      updatedAt: data.updatedAt?.toDate()
+    } as Flow;
+  } catch (error) {
+    console.error('Error getting flow:', error);
+    return null;
+  }
+};
+
 export const getAllFlows = async (): Promise<Flow[]> => {
   const querySnapshot = await getDocs(flowsRef);
   return querySnapshot.docs.map(doc => ({

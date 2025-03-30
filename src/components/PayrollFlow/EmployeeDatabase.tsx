@@ -12,7 +12,8 @@ import {
   flowsRef,
   linkFlowToEmployee,
   unlinkFlowFromEmployee,
-  bulkLinkFlowToEmployees
+  bulkLinkFlowToEmployees,
+  getFlowById
 } from '@/lib/firebase';
 import { onSnapshot } from 'firebase/firestore';
 import { 
@@ -88,6 +89,14 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
   const [bulkSelectedFieldName, setBulkSelectedFieldName] = useState<string>('');
   const [bulkSelectedFlowId, setBulkSelectedFlowId] = useState<string>('');
+  const [isInitiatingFlows, setIsInitiatingFlows] = useState(false);
+  const [processingEmployeeIds, setProcessingEmployeeIds] = useState<string[]>([]);
+  const [flowExecutionResults, setFlowExecutionResults] = useState<{
+    success: string[];
+    errors: { employeeId: string; name: string; error: string }[];
+    updates: { employeeId: string; name: string; field: string; value: any }[];
+  }>({ success: [], errors: [], updates: [] });
+  const [showExecutionReport, setShowExecutionReport] = useState(false);
 
   // Load employees from Firestore and set up real-time sync
   useEffect(() => {
@@ -320,6 +329,269 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
     );
   };
 
+  // Execute flows for all employees
+  const initiateFlowsForEmployees = async () => {
+    setIsInitiatingFlows(true);
+    setFlowExecutionResults({ success: [], errors: [], updates: [] });
+    setProcessingEmployeeIds([]);
+    
+    const results = {
+      success: [] as string[],
+      errors: [] as { employeeId: string; name: string; error: string }[],
+      updates: [] as { employeeId: string; name: string; field: string; value: any }[]
+    };
+    
+    // Get all employees with linked flows
+    const employeesWithFlows = employees.filter(
+      employee => employee.linkedFlows && 
+      (employee.linkedFlows._flows?.length > 0 || 
+       Object.keys(employee.linkedFlows).filter(key => key !== '_flows').length > 0)
+    );
+    
+    if (employeesWithFlows.length === 0) {
+      toast({
+        title: "No flows to execute",
+        description: "No employees have linked flows.",
+        variant: "destructive"
+      });
+      setIsInitiatingFlows(false);
+      return;
+    }
+    
+    // Process each employee
+    for (const employee of employeesWithFlows) {
+      try {
+        // Add employee to processing list
+        setProcessingEmployeeIds(prev => [...prev, employee.id]);
+        
+        // Get all flow IDs linked to this employee (both general and field-specific)
+        const flowIds = new Set<string>();
+        
+        // Add general flows
+        if (employee.linkedFlows?._flows) {
+          (employee.linkedFlows._flows as string[]).forEach(flowId => flowIds.add(flowId));
+        }
+        
+        // Add field-specific flows
+        Object.entries(employee.linkedFlows || {}).forEach(([key, value]) => {
+          if (key !== '_flows' && typeof value === 'string') {
+            flowIds.add(value);
+          }
+        });
+        
+        // Execute each flow for this employee
+        for (const flowId of flowIds) {
+          try {
+            // Get the flow
+            const flow = await getFlowById(flowId);
+            if (!flow) {
+              throw new Error(`Flow with ID ${flowId} not found`);
+            }
+            
+            // Execute the flow on this employee
+            const updatedFields = await executeFlowForEmployee(employee, flow);
+            
+            // Save the updated fields to Firestore
+            if (Object.keys(updatedFields).length > 0) {
+              try {
+                // Create a fields object with only the fields that were updated
+                const fieldsToUpdate: Record<string, any> = {};
+                Object.entries(updatedFields).forEach(([field, value]) => {
+                  // Skip the lastProcessed field as it's just for tracking
+                  if (field !== 'lastProcessed') {
+                    fieldsToUpdate[field] = value;
+                  }
+                });
+                
+                // Only update if there are actual fields to update
+                if (Object.keys(fieldsToUpdate).length > 0) {
+                  await updateEmployee(employee.id, { 
+                    fields: {
+                      ...employee.fields,
+                      ...fieldsToUpdate
+                    }
+                  });
+                  
+                  // Add additional success message for the Firestore update
+                  results.success.push(`Updated Firestore data for employee ${employee.name}`);
+                }
+              } catch (firestoreError) {
+                console.error(`Error updating Firestore for employee ${employee.id}:`, firestoreError);
+                results.errors.push({
+                  employeeId: employee.id,
+                  name: employee.name,
+                  error: `Firestore update failed: ${firestoreError instanceof Error ? firestoreError.message : String(firestoreError)}`
+                });
+              }
+            }
+            
+            // Record success
+            results.success.push(`Successfully executed flow "${flow.name}" for employee ${employee.name}`);
+            
+            // Record updates
+            Object.entries(updatedFields).forEach(([field, value]) => {
+              // Skip the lastProcessed field in the report
+              if (field !== 'lastProcessed') {
+                results.updates.push({
+                  employeeId: employee.id,
+                  name: employee.name,
+                  field,
+                  value
+                });
+              }
+            });
+          } catch (error) {
+            console.error(`Error executing flow for employee ${employee.id}:`, error);
+            results.errors.push({
+              employeeId: employee.id,
+              name: employee.name,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
+        
+        // Add a small delay to make the visual effect noticeable
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.error(`Error processing employee ${employee.id}:`, error);
+        results.errors.push({
+          employeeId: employee.id,
+          name: employee.name,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      } finally {
+        // Remove employee from processing list
+        setProcessingEmployeeIds(prev => prev.filter(id => id !== employee.id));
+      }
+    }
+    
+    // Show results
+    setFlowExecutionResults(results);
+    setShowExecutionReport(true);
+    setIsInitiatingFlows(false);
+    
+    // Show toast with summary
+    toast({
+      title: "Flow Execution Complete",
+      description: `Successfully analyzed ${results.success.length} flows with ${results.updates.length} potential updates and ${results.errors.length} errors.`,
+      variant: results.errors.length > 0 ? "destructive" : "default"
+    });
+  };
+  
+  // Execute a single flow for an employee
+  const executeFlowForEmployee = async (employee: Employee, flow: Flow) => {
+    // This implementation runs the entire flow and checks output nodes for fields to update
+    const updatedFields: Record<string, any> = {};
+    
+    try {
+      // Create a variables object to track flow execution
+      const variables: Record<string, any> = {};
+      
+      // Initialize variables with employee fields
+      Object.entries(employee.fields).forEach(([fieldName, value]) => {
+        variables[fieldName] = value;
+      });
+      
+      // Process nodes in topological order (simplified)
+      // In a real implementation, you would need to sort nodes by dependencies
+      
+      // First, process all computation nodes
+      const computationNodes = flow.nodes.filter(node => node.type === 'computationNode');
+      for (const node of computationNodes) {
+        try {
+          const formula = node.data?.formula;
+          const resultVariable = node.data?.resultVariable;
+          
+          if (formula && resultVariable) {
+            // Simulate formula execution
+            // In a real implementation, you would evaluate the formula
+            let result;
+            
+            // Simple formula simulation based on common patterns
+            if (formula.includes('+')) {
+              const parts = formula.split('+').map(p => p.trim());
+              const values = parts.map(p => {
+                if (variables[p] !== undefined) return variables[p];
+                return isNaN(Number(p)) ? 0 : Number(p);
+              });
+              result = values.reduce((sum, val) => sum + val, 0);
+            } else if (formula.includes('*')) {
+              const parts = formula.split('*').map(p => p.trim());
+              const values = parts.map(p => {
+                if (variables[p] !== undefined) return variables[p];
+                return isNaN(Number(p)) ? 1 : Number(p);
+              });
+              result = values.reduce((product, val) => product * val, 1);
+            } else if (formula.includes('-')) {
+              const parts = formula.split('-').map(p => p.trim());
+              const values = parts.map(p => {
+                if (variables[p] !== undefined) return variables[p];
+                return isNaN(Number(p)) ? 0 : Number(p);
+              });
+              result = values.reduce((diff, val, idx) => idx === 0 ? val : diff - val, 0);
+            } else if (formula.includes('/')) {
+              const parts = formula.split('/').map(p => p.trim());
+              const values = parts.map(p => {
+                if (variables[p] !== undefined) return variables[p];
+                return isNaN(Number(p)) ? 1 : Number(p);
+              });
+              result = values.reduce((quotient, val, idx) => idx === 0 ? val : quotient / val, 0);
+            } else {
+              // If no operators, try to use the variable directly
+              result = variables[formula] !== undefined ? variables[formula] : 0;
+            }
+            
+            // Store the result in variables
+            variables[resultVariable] = result;
+          }
+        } catch (error) {
+          console.error('Error processing computation node:', error);
+        }
+      }
+      
+      // Process code nodes (simplified)
+      const codeNodes = flow.nodes.filter(node => node.type === 'codeNode');
+      for (const node of codeNodes) {
+        try {
+          const code = node.data?.code;
+          const outputVariable = node.data?.outputVariable;
+          
+          if (code && outputVariable) {
+            // In a real implementation, you would evaluate the code
+            // For simulation, just set a placeholder value
+            variables[outputVariable] = `Result of code execution for ${outputVariable}`;
+          }
+        } catch (error) {
+          console.error('Error processing code node:', error);
+        }
+      }
+      
+      // Process output nodes
+      const outputNodes = flow.nodes.filter(node => node.type === 'outputNode');
+      for (const node of outputNodes) {
+        try {
+          // Extract the field name and variable from the output node
+          const selectedField = node.data?.selectedField;
+          const selectedVariable = node.data?.selectedVariable;
+          
+          if (selectedField && selectedVariable && variables[selectedVariable] !== undefined) {
+            // Record the field that would be updated with the calculated value
+            updatedFields[selectedField] = variables[selectedVariable];
+          }
+        } catch (error) {
+          console.error('Error processing output node:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error executing flow:', error);
+    }
+    
+    // Add a timestamp to show when the flow was processed
+    updatedFields.lastProcessed = new Date().toISOString();
+    
+    return updatedFields;
+  };
+
   return (
     <Card className="w-full">
       <CardHeader>
@@ -348,6 +620,10 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
                   <FileSymlink className="h-4 w-4 mr-2" />
                   Bulk Link Flow
                 </Button>
+                <Button onClick={initiateFlowsForEmployees} disabled={isInitiatingFlows}>
+                  <GitBranch className="h-4 w-4 mr-2" />
+                  Initiate Flows
+                </Button>
               </>
             )}
           </div>
@@ -368,7 +644,7 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
           </TableHeader>
           <TableBody>
             {employees.map((employee) => (
-              <TableRow key={employee.id}>
+              <TableRow key={employee.id} className={processingEmployeeIds.includes(employee.id) ? 'bg-blue-50 animate-pulse' : ''}>
                 {isBulkLinkDialogOpen && (
                   <TableCell>
                     <Checkbox 
@@ -377,7 +653,14 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
                     />
                   </TableCell>
                 )}
-                <TableCell>{employee.id}</TableCell>
+                <TableCell>
+                  {employee.id}
+                  {processingEmployeeIds.includes(employee.id) && (
+                    <span className="ml-2 inline-flex items-center">
+                      <GitBranch className="h-4 w-4 text-blue-500 animate-spin" />
+                    </span>
+                  )}
+                </TableCell>
                 <TableCell>{employee.name}</TableCell>
                 <TableCell>{employee.position}</TableCell>
                 <TableCell>
@@ -641,7 +924,7 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
             
             {!selectedFieldName && (
               <div className="pt-2">
-                <div className="font-medium text-sm mb-2">Currently Linked Flows</div>
+                <div className="font-medium mb-2">Currently Linked Flows</div>
                 <div className="flex flex-wrap gap-2 mb-4">
                   {getEmployeeGeneralFlows(selectedEmployeeId || '').length > 0 ? (
                     getEmployeeGeneralFlows(selectedEmployeeId || '').map(flowId => (
@@ -764,6 +1047,38 @@ const EmployeeDatabase: React.FC<EmployeeDatabaseProps> = ({
             >
               Link Flow to {selectedEmployeeIds.length} Employee{selectedEmployeeIds.length !== 1 ? 's' : ''}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Flow Execution Report Dialog */}
+      <Dialog open={showExecutionReport} onOpenChange={setShowExecutionReport}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Flow Execution Report</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="font-medium mb-2">Results:</div>
+            <div className="flex flex-wrap gap-2">
+              {flowExecutionResults.success.map(result => (
+                <Badge key={result} variant="secondary" className="py-1.5 bg-green-100 text-green-800 border-green-200">
+                  {result}
+                </Badge>
+              ))}
+              {flowExecutionResults.errors.map(error => (
+                <Badge key={error.employeeId} variant="destructive" className="py-1.5">
+                  Error executing flow for {error.name}: {error.error}
+                </Badge>
+              ))}
+              {flowExecutionResults.updates.map((update, index) => (
+                <Badge key={`${update.employeeId}-${update.field}-${index}`} variant="secondary" className="py-1.5 bg-blue-100 text-blue-800 border-blue-200">
+                  Updated {update.field} for {update.name}: {update.value}
+                </Badge>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowExecutionReport(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

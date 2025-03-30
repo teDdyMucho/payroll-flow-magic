@@ -11,6 +11,8 @@ import { Employee } from '@/data/employeeData';
 import { User, Check, FileOutput, ArrowRightToLine, Info, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { detectEmployeesInVariables, formatValueForDisplay } from '@/utils/flowUtils';
+import { updateEmployee } from '@/lib/firebase';
+import { toast } from '@/components/ui/use-toast';
 
 interface OutputNodeProps {
   id: string;
@@ -37,7 +39,7 @@ const OutputNode: React.FC<OutputNodeProps> = ({ id, data, selected }) => {
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
   const [outputName, setOutputName] = useState<string>(data.outputName || 'Output');
   const [description, setDescription] = useState<string>(data.description || '');
-  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState<boolean>(false);
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState<boolean>(true);
   const [detectedEmployees, setDetectedEmployees] = useState<string[]>([]);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -128,7 +130,7 @@ const OutputNode: React.FC<OutputNodeProps> = ({ id, data, selected }) => {
     }
   };
 
-  const handleUpdateEmployeeField = () => {
+  const handleUpdateEmployeeField = async () => {
     setUpdateError(null);
     setIsUpdating(true);
     
@@ -155,6 +157,7 @@ const OutputNode: React.FC<OutputNodeProps> = ({ id, data, selected }) => {
       const updatedEmployees = [...data.employees];
       const variableValue = data.variables[selectedVariable];
       
+      // Update the employee in the local state
       updatedEmployees[employeeIndex] = {
         ...updatedEmployees[employeeIndex],
         fields: {
@@ -163,6 +166,33 @@ const OutputNode: React.FC<OutputNodeProps> = ({ id, data, selected }) => {
         }
       };
       
+      // Update the employee in Firestore
+      try {
+        await updateEmployee(selectedEmployee, { 
+          fields: {
+            ...updatedEmployees[employeeIndex].fields
+          }
+        });
+        
+        // Show success toast
+        toast({
+          title: "Employee updated",
+          description: `Field "${selectedField}" updated to "${formatValueForDisplay(variableValue)}" for ${updatedEmployees[employeeIndex].name}`,
+          variant: "default"
+        });
+      } catch (firestoreError) {
+        console.error("Error updating employee in Firestore:", firestoreError);
+        setUpdateError(`Firestore update failed: ${firestoreError instanceof Error ? firestoreError.message : String(firestoreError)}`);
+        
+        // Show error toast
+        toast({
+          title: "Update failed",
+          description: `Failed to update employee in Firestore: ${firestoreError instanceof Error ? firestoreError.message : String(firestoreError)}`,
+          variant: "destructive"
+        });
+      }
+      
+      // Update the local state
       data.setEmployees(updatedEmployees);
       setLastUpdateTime(new Date());
       
